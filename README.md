@@ -49,7 +49,7 @@ terminal.
 
 | Command | Typical package | Purpose |
 |---|---|---|
-| `globalprotect` | GlobalProtect Linux client (vendor package from Palo Alto Networks) | Establishes the VPN tunnel |
+| `globalprotect` | GlobalProtect Linux client **6.2.x or higher** (vendor package from Palo Alto Networks) | Establishes the VPN tunnel |
 | `kdialog` | `kdialog` (KDE Plasma) | All graphical prompts/dialogs (input, password, error, message boxes) |
 | `xterm` | `xterm` | Hosts the interactive auth and route-injection sessions |
 | `ip` | `iproute2` | Reads interface addresses and checks/sets routes |
