@@ -19,18 +19,13 @@ CORPORATE_ROUTES=(
 export LIBGL_ALWAYS_SOFTWARE=1
 export EGL_LOG_LEVEL=fatal
 
-# Prevent KDE from intercepting xterm launches and substituting Konsole.
-# KDE respects $TERMINAL and the x-terminal-emulator alternative; unsetting
-# them forces xterm to be used directly with no KDE delegation.
-unset TERMINAL
-unset COLORTERM
 # Explicitly set xterm as the terminal emulator for this session
 export TERM=xterm-256color
 
 # --- Dependency Checks ---
 check_command() {
     if ! command -v "$1" &> /dev/null; then
-        kdialog --error "Required command '$1' is not installed."
+        zenity --error --text="Required command '$1' is not installed."
         exit 1
     fi
 }
@@ -38,11 +33,11 @@ check_command() {
 check_command "globalprotect"
 check_command "ip"
 check_command "grep"
-check_command "kdialog"
+check_command "zenity"
 check_command "xterm"
 check_command "sudo"
 
-# Resolve absolute path to xterm to bypass any KDE x-terminal-emulator wrapper
+# Resolve absolute path to xterm
 XTERM_BIN=$(command -v xterm)
 
 # --- Temp file for IPC: globalprotect exit code ---
@@ -58,7 +53,7 @@ trap cleanup EXIT
 # STEP 1: Graphical username prompt (if not hardcoded)
 # ─────────────────────────────────────────────
 if [ -z "$USERNAME" ]; then
-    USERNAME=$(kdialog --title "GlobalProtect VPN" --inputbox "Enter Boeing Username:")
+    USERNAME=$(zenity --title "GlobalProtect VPN" --entry --text="Enter Boeing Username:")
     if [ $? -ne 0 ] || [ -z "$USERNAME" ]; then
         exit 0
     fi
@@ -67,9 +62,9 @@ fi
 # ─────────────────────────────────────────────
 # STEP 2: Notify user — xterm is opening for auth
 # ─────────────────────────────────────────────
-kdialog \
-    --title "GlobalProtect VPN" \
-    --passivepopup "Opening secure authentication terminal for $USERNAME@$PORTAL..." 4
+zenity \
+    --notification \
+    --text="Opening secure authentication terminal for $USERNAME@$PORTAL..."
 
 # ─────────────────────────────────────────────
 # STEP 3: Run globalprotect in an xterm window
@@ -138,7 +133,7 @@ if [ "$GP_EXIT" != "0" ]; then
 fi
 
 if [ "$GP_EXIT" != "0" ]; then
-    kdialog --error "VPN connection failed. Please check your credentials or network."
+    zenity --error --text="VPN connection failed. Please check your credentials or network."
     exit 1
 fi
 
@@ -158,29 +153,29 @@ for iface in "${LOCAL_INTERFACES[@]}"; do
 done
 
 if [ "$SHOULD_ADD_ROUTES" = false ]; then
-    kdialog \
+    zenity \
         --title "VPN Connected" \
-        --msgbox $'Connected successfully!\n\nNo matching subnets detected — custom routes skipped.'
+        --info --text=$'Connected successfully!\n\nNo matching subnets detected — custom routes skipped.'
     exit 0
 fi
 
 # ─────────────────────────────────────────────
-# STEP 6: Collect sudo password ONCE via kdialog
+# STEP 6: Collect sudo password ONCE via zenity
 #   - Validated immediately before use
 #   - Exported to environment for the route xterm
 # ─────────────────────────────────────────────
-SUDO_PASS=$(kdialog \
+SUDO_PASS=$(zenity \
     --title "Administrative Authentication" \
-    --password $'Matching subnet detected. Enter your sudo password to apply corporate routing tables.\n\nThis will be used for all route entries — you will not be prompted again.')
+    --password --text=$'Matching subnet detected. Enter your sudo password to apply corporate routing tables.\n\nThis will be used for all route entries — you will not be prompted again.')
 
 if [ $? -ne 0 ] || [ -z "$SUDO_PASS" ]; then
-    kdialog --error "Authentication cancelled. Routes were not applied."
+    zenity --error --text="Authentication cancelled. Routes were not applied."
     exit 1
 fi
 
 # Validate password before proceeding
 if ! echo "$SUDO_PASS" | sudo -S true 2>/dev/null; then
-    kdialog --error "Incorrect sudo password. Routes were not applied."
+    zenity --error --text="Incorrect sudo password. Routes were not applied."
     exit 1
 fi
 
@@ -217,8 +212,8 @@ export SUDO_PASS
 
         for route in "${routes[@]}"; do
             printf "  \033[0;37m%-28s\033[0m" "$route"
-            # stderr goes to fd3 so sudo auth errors surface in the terminal
-            # without polluting the status line
+            # stderr is suppressed so sudo/ip errors don't pollute the status
+            # line; failures still register via exit status and show as "Failed"
             if echo "$SUDO_PASS" | sudo -S ip route replace "$route" dev "$VPN_DEV" 2>/dev/null; then
                 echo -e "\033[1;32m  ✔  Applied\033[0m"
             else
@@ -245,8 +240,8 @@ export SUDO_PASS
 # ─────────────────────────────────────────────
 unset SUDO_PASS CORPORATE_ROUTES_STR VPN_DEV
 
-kdialog \
+zenity \
     --title "VPN Connected" \
-    --msgbox $'Connected successfully!\n\nCorporate routing tables have been applied.'
+    --info --text=$'Connected successfully!\n\nCorporate routing tables have been applied.'
 
 exit 0
