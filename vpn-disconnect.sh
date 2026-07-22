@@ -4,6 +4,18 @@
 
 # --- Configuration ---
 PORTAL="gp.bgss.boeing.com"
+VPN_DEV="gpd0"
+
+# Corporate routes added by vpn-connect.sh — removed here on disconnect so a
+# later connect re-adds them cleanly with no stale/cached entries. Keep this
+# list in sync with CORPORATE_ROUTES in vpn-connect.sh.
+CORPORATE_ROUTES=(
+    "10.0.0.0/8"
+    "172.16.0.0/12"
+    "192.168.0.0/16"
+    "10.0.2.47/32"
+    "10.0.2.12/32"
+)
 
 # Fix for VMware/libEGL software fallback warnings
 export LIBGL_ALWAYS_SOFTWARE=1
@@ -61,6 +73,14 @@ dlg_question() { # dlg_question "title" "message" -> returns 0 if user confirms
     fi
 }
 
+dlg_password() { # dlg_password "title" "message" -> echoes value, returns dialog exit code
+    if [ "$DIALOG" = "zenity" ]; then
+        zenity --title "$1" --password --text="$2"
+    else
+        kdialog --title "$1" --password "$2"
+    fi
+}
+
 # --- Dependency Checks ---
 check_command() {
     if ! command -v "$1" &> /dev/null; then
@@ -84,13 +104,66 @@ fi
 globalprotect disconnect
 GP_RESULT=$?
 
+# Give the client a moment to tear the tunnel/interface down before we check
+# for leftover routes (the kernel drops routes bound to $VPN_DEV as it goes).
+sleep 1
+
 # ─────────────────────────────────────────────
-# STEP 3: Report result
+# STEP 3: Clean up leftover corporate routes
+#   - Normally the kernel already removed them with $VPN_DEV; this handles the
+#     case where they linger so a later connect starts from a clean slate.
+#   - Only prompts for sudo if something actually needs removing.
+# ─────────────────────────────────────────────
+CLEAN_MSG=""
+
+LEFTOVER=()
+for route in "${CORPORATE_ROUTES[@]}"; do
+    if ip route show "$route" dev "$VPN_DEV" 2>/dev/null | grep -q .; then
+        LEFTOVER+=("$route")
+    fi
+done
+
+if [ "${#LEFTOVER[@]}" -gt 0 ]; then
+    check_command "ip"
+    check_command "sudo"
+
+    SUDO_PASS=$(dlg_password "Administrative Authentication" $'Removing leftover VPN routes so the next connection starts clean.\n\nEnter your sudo password.')
+
+    if [ $? -ne 0 ] || [ -z "$SUDO_PASS" ]; then
+        CLEAN_MSG=$'\n\nLeftover VPN routes were NOT removed (cancelled).'
+    elif ! echo "$SUDO_PASS" | sudo -S true 2>/dev/null; then
+        CLEAN_MSG=$'\n\nLeftover VPN routes were NOT removed (incorrect sudo password).'
+    else
+        REMAIN=0
+        for route in "${LEFTOVER[@]}"; do
+            echo "$SUDO_PASS" | sudo -S ip route del "$route" dev "$VPN_DEV" 2>/dev/null
+            if ip route show "$route" dev "$VPN_DEV" 2>/dev/null | grep -q .; then
+                REMAIN=$((REMAIN + 1))
+            fi
+        done
+        if [ "$REMAIN" -eq 0 ]; then
+            CLEAN_MSG=$'\n\nLeftover corporate routes were removed.'
+        else
+            CLEAN_MSG=$'\n\nWarning: some corporate routes could not be removed.'
+        fi
+    fi
+    unset SUDO_PASS
+fi
+
+# ─────────────────────────────────────────────
+# STEP 4: Remove leftover IPC/cache files from vpn-connect.sh
+#   - These are normally deleted by that script's EXIT trap; sweep any that a
+#     crash or kill left behind so no stale data persists after disconnect.
+# ─────────────────────────────────────────────
+rm -f /tmp/vpn_gp_exit.* /tmp/vpn_route_status.* 2>/dev/null
+
+# ─────────────────────────────────────────────
+# STEP 5: Report result
 # ─────────────────────────────────────────────
 if [ "$GP_RESULT" -eq 0 ]; then
-    dlg_info "VPN Disconnected" $'Disconnected from the GlobalProtect VPN.'
+    dlg_info "VPN Disconnected" "Disconnected from the GlobalProtect VPN.${CLEAN_MSG}"
     exit 0
 else
-    dlg_error "Failed to disconnect (exit code: $GP_RESULT). You may already be disconnected."
+    dlg_error "Failed to disconnect (exit code: $GP_RESULT). You may already be disconnected.${CLEAN_MSG}"
     exit 1
 fi

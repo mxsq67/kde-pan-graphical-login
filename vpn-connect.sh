@@ -109,12 +109,13 @@ check_command "sudo"
 # Resolve absolute path to xterm
 XTERM_BIN=$(command -v xterm)
 
-# --- Temp file for IPC: globalprotect exit code ---
+# --- Temp files for IPC: globalprotect exit code and route-verify result ---
 GP_EXIT_FILE=$(mktemp /tmp/vpn_gp_exit.XXXXXX)
-chmod 600 "$GP_EXIT_FILE"
+ROUTE_STATUS_FILE=$(mktemp /tmp/vpn_route_status.XXXXXX)
+chmod 600 "$GP_EXIT_FILE" "$ROUTE_STATUS_FILE"
 
 cleanup() {
-    rm -f "$GP_EXIT_FILE"
+    rm -f "$GP_EXIT_FILE" "$ROUTE_STATUS_FILE"
 }
 trap cleanup EXIT
 
@@ -250,6 +251,7 @@ fi
 export VPN_DEV
 export CORPORATE_ROUTES_STR="${CORPORATE_ROUTES[*]}"
 export SUDO_PASS
+export ROUTE_STATUS_FILE
 
 "$XTERM_BIN" \
     -title "Boeing GlobalProtect — Applying Routes" \
@@ -270,8 +272,26 @@ export SUDO_PASS
         echo -e "\033[1;34m  ────────────────────────────────────────────────────────\033[0m"
         echo ""
 
+        # Keep NetworkManager out of the way: if it is present and running, mark
+        # the VPN device unmanaged so NM does not reclaim it and flush the routes
+        # we are about to add. Best-effort — ignored if nmcli is absent or fails.
+        if command -v nmcli > /dev/null 2>&1 \
+           && nmcli -t -f RUNNING general 2>/dev/null | grep -q "running"; then
+            printf "  \033[0;37m%-28s\033[0m" "NetworkManager: unmanage $VPN_DEV"
+            if echo "$SUDO_PASS" | sudo -S nmcli device set "$VPN_DEV" managed no 2>/dev/null; then
+                echo -e "\033[1;32m  ✔  Done\033[0m"
+            else
+                echo -e "\033[1;33m  ⚠  Skipped\033[0m"
+            fi
+            echo ""
+        fi
+
         read -r -a routes <<< "$CORPORATE_ROUTES_STR"
-        ALL_OK=true
+
+        # route_present: true if the exact route is installed on $VPN_DEV
+        route_present() {
+            ip route show "$1" dev "$VPN_DEV" 2>/dev/null | grep -q .
+        }
 
         for route in "${routes[@]}"; do
             printf "  \033[0;37m%-28s\033[0m" "$route"
@@ -281,6 +301,40 @@ export SUDO_PASS
                 echo -e "\033[1;32m  ✔  Applied\033[0m"
             else
                 echo -e "\033[1;31m  ✘  Failed\033[0m"
+            fi
+            sleep 0.15
+        done
+
+        echo ""
+        echo -e "\033[0;33m  Verifying routes are present, re-adding any that are missing...\033[0m"
+        echo -e "\033[1;34m  ────────────────────────────────────────────────────────\033[0m"
+        echo ""
+
+        # Verification pass: confirm each route actually exists in the table and
+        # re-add (up to 3 attempts) any that GlobalProtect or a race dropped.
+        ALL_OK=true
+        for route in "${routes[@]}"; do
+            printf "  \033[0;37m%-28s\033[0m" "$route"
+
+            if route_present "$route"; then
+                echo -e "\033[1;32m  ✔  Present\033[0m"
+                continue
+            fi
+
+            READDED=false
+            for attempt in 1 2 3; do
+                echo "$SUDO_PASS" | sudo -S ip route replace "$route" dev "$VPN_DEV" 2>/dev/null
+                sleep 0.3
+                if route_present "$route"; then
+                    READDED=true
+                    break
+                fi
+            done
+
+            if [ "$READDED" = true ]; then
+                echo -e "\033[1;33m  ⟳  Re-added\033[0m"
+            else
+                echo -e "\033[1;31m  ✘  Missing (re-add failed)\033[0m"
                 ALL_OK=false
             fi
             sleep 0.15
@@ -289,20 +343,31 @@ export SUDO_PASS
         echo ""
         echo -e "\033[1;34m  ────────────────────────────────────────────────────────\033[0m"
 
+        # Report verification result back to the parent script.
         if [ "$ALL_OK" = true ]; then
-            echo -e "\033[1;32m  ✔  All routes applied. Closing in 3 seconds...\033[0m"
+            echo "ok" > "$ROUTE_STATUS_FILE"
+            echo -e "\033[1;32m  ✔  All routes verified present. Closing in 3 seconds...\033[0m"
             sleep 3
         else
-            echo -e "\033[1;33m  ⚠  Some routes failed. Press Enter to close.\033[0m"
+            echo "fail" > "$ROUTE_STATUS_FILE"
+            echo -e "\033[1;33m  ⚠  Some routes could not be verified. Press Enter to close.\033[0m"
             read -r
         fi
     '
 
 # ─────────────────────────────────────────────
-# STEP 8: Final success notification — clear secrets first
+# STEP 8: Final notification — reflect the route-verification result,
+#         and clear secrets first
 # ─────────────────────────────────────────────
 unset SUDO_PASS CORPORATE_ROUTES_STR VPN_DEV
 
-dlg_info "VPN Connected" $'Connected successfully!\n\nCorporate routing tables have been applied.'
+ROUTE_STATUS=$(cat "$ROUTE_STATUS_FILE" 2>/dev/null)
+
+if [ "$ROUTE_STATUS" = "ok" ]; then
+    dlg_info "VPN Connected" $'Connected successfully!\n\nCorporate routing tables have been applied and verified.'
+else
+    dlg_error $'Connected, but some corporate routes could not be verified or re-added.\n\nCheck the route terminal output and your VPN connection.'
+    exit 1
+fi
 
 exit 0
