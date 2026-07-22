@@ -7,23 +7,34 @@ terminal.
 
 ## Usage
 
-```bash
-# One-time: make the script executable
-chmod +x vpn-connect.sh
+The scripts are installed in and run from `/home/scottmi/VPN/`. The two `.desktop`
+launchers' `Exec=` lines already point there.
 
-# Run it (from a menu entry, panel launcher, or a terminal)
-./vpn-connect.sh
+```bash
+# Install the scripts into /home/scottmi/VPN/
+mkdir -p /home/scottmi/VPN
+cp vpn-connect.sh vpn-disconnect.sh /home/scottmi/VPN/
+chmod +x /home/scottmi/VPN/vpn-connect.sh /home/scottmi/VPN/vpn-disconnect.sh
+
+# Install the launcher buttons (Connect / Disconnect)
+cp vpn-connect.desktop vpn-disconnect.desktop ~/.local/share/applications/
+update-desktop-database ~/.local/share/applications/   # optional
+
+# Or run a script directly
+/home/scottmi/VPN/vpn-connect.sh
 ```
 
-The script is fully graphical once launched — it opens `zenity` dialogs for prompts and a styled
-`xterm` for the interactive GlobalProtect authentication (password + MFA). It needs a running X /
-GNOME session; it will not work over a plain SSH session without an X display. To wire it to a
-desktop launcher, point a `.desktop` file's `Exec=` at the absolute path of the script.
+The scripts are fully graphical once launched — they open dialogs for prompts (via `zenity` on
+GNOME or `kdialog` on KDE, auto-detected) and `vpn-connect.sh` opens a styled `xterm` for the
+interactive GlobalProtect authentication (password + MFA). They need a running X / desktop
+session; they will not work over a plain SSH session without an X display.
 
-Install the runtime dependencies first (Debian/Ubuntu example):
+Install the runtime dependencies first (Debian/Ubuntu example — use `zenity` for GNOME or
+`kdialog` for KDE):
 
 ```bash
-sudo apt install zenity xterm iproute2
+sudo apt install zenity xterm iproute2      # GNOME
+# sudo apt install kdialog xterm iproute2   # KDE
 ```
 
 The GlobalProtect client (`globalprotect`, 6.2.x or higher) is a separate vendor package from Palo

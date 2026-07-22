@@ -1,5 +1,7 @@
 #!/bin/bash
 
+# Installed and run from /home/scottmi/VPN/ (see the .desktop launchers).
+
 # --- Configuration ---
 PORTAL="gp.bgss.boeing.com"
 
@@ -7,15 +9,31 @@ PORTAL="gp.bgss.boeing.com"
 export LIBGL_ALWAYS_SOFTWARE=1
 export EGL_LOG_LEVEL=fatal
 
-# --- Graphical dialog abstraction (zenity for GNOME, kdialog for KDE) ---
-# Prefer whichever toolkit's dialog helper is installed so the script works on
-# both desktops. All prompts below go through the dlg_* wrappers.
-if command -v zenity &> /dev/null; then
-    DIALOG="zenity"
-elif command -v kdialog &> /dev/null; then
-    DIALOG="kdialog"
-else
-    echo "Error: neither 'zenity' (GNOME) nor 'kdialog' (KDE) is installed." >&2
+# --- Detect desktop environment and bind to its native dialog toolkit ---
+# Validate the running session and lock to exactly one toolkit: GNOME uses
+# zenity only, KDE uses kdialog only. The script does NOT fall back to the
+# other toolkit — it must match the detected environment. All prompts below
+# go through the dlg_* wrappers, never a raw zenity/kdialog call.
+DESKTOP_ENV="${XDG_CURRENT_DESKTOP:-$DESKTOP_SESSION}"
+shopt -s nocasematch
+case "$DESKTOP_ENV" in
+    *gnome*)
+        DIALOG="zenity"
+        ;;
+    *kde*|*plasma*)
+        DIALOG="kdialog"
+        ;;
+    *)
+        echo "Error: unsupported desktop environment '${DESKTOP_ENV:-unknown}'." \
+             "This script supports only GNOME (zenity) or KDE (kdialog)." >&2
+        exit 1
+        ;;
+esac
+shopt -u nocasematch
+
+# The environment's required dialog tool must be present — no cross-toolkit fallback.
+if ! command -v "$DIALOG" &> /dev/null; then
+    echo "Error: '$DIALOG' is required for the detected $DESKTOP_ENV session but is not installed." >&2
     exit 1
 fi
 

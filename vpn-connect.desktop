@@ -1,11 +1,11 @@
-# Adjust Exec/Icon paths to wherever the scripts are installed on your system.
+# Scripts install to /home/scottmi/VPN/; adjust Exec if you install elsewhere.
 [Desktop Entry]
 Type=Application
 Version=1.0
 Name=GlobalProtect VPN — Connect
 GenericName=VPN Connect
 Comment=Connect to the Boeing GlobalProtect VPN
-Exec=/opt/vpn-connect/vpn-connect.sh
+Exec=/home/scottmi/VPN/vpn-connect.sh
 Icon=network-vpn
 Terminal=false
 Categories=Network;
