@@ -22,10 +22,63 @@ export EGL_LOG_LEVEL=fatal
 # Explicitly set xterm as the terminal emulator for this session
 export TERM=xterm-256color
 
+# --- Graphical dialog abstraction (zenity for GNOME, kdialog for KDE) ---
+# Prefer whichever toolkit's dialog helper is installed so the script works on
+# both desktops. All prompts below go through the dlg_* wrappers, never a raw
+# zenity/kdialog call.
+if command -v zenity &> /dev/null; then
+    DIALOG="zenity"
+elif command -v kdialog &> /dev/null; then
+    DIALOG="kdialog"
+else
+    echo "Error: neither 'zenity' (GNOME) nor 'kdialog' (KDE) is installed." >&2
+    exit 1
+fi
+
+dlg_error() {    # dlg_error "message"
+    if [ "$DIALOG" = "zenity" ]; then
+        zenity --error --text="$1"
+    else
+        kdialog --error "$1"
+    fi
+}
+
+dlg_info() {     # dlg_info "title" "message"
+    if [ "$DIALOG" = "zenity" ]; then
+        zenity --title "$1" --info --text="$2"
+    else
+        kdialog --title "$1" --msgbox "$2"
+    fi
+}
+
+dlg_notify() {   # dlg_notify "message"
+    if [ "$DIALOG" = "zenity" ]; then
+        zenity --notification --text="$1"
+    else
+        kdialog --passivepopup "$1" 4
+    fi
+}
+
+dlg_input() {    # dlg_input "title" "message" -> echoes value, returns dialog exit code
+    if [ "$DIALOG" = "zenity" ]; then
+        zenity --title "$1" --entry --text="$2"
+    else
+        kdialog --title "$1" --inputbox "$2"
+    fi
+}
+
+dlg_password() { # dlg_password "title" "message" -> echoes value, returns dialog exit code
+    if [ "$DIALOG" = "zenity" ]; then
+        zenity --title "$1" --password --text="$2"
+    else
+        kdialog --title "$1" --password "$2"
+    fi
+}
+
 # --- Dependency Checks ---
 check_command() {
     if ! command -v "$1" &> /dev/null; then
-        zenity --error --text="Required command '$1' is not installed."
+        dlg_error "Required command '$1' is not installed."
         exit 1
     fi
 }
@@ -33,7 +86,6 @@ check_command() {
 check_command "globalprotect"
 check_command "ip"
 check_command "grep"
-check_command "zenity"
 check_command "xterm"
 check_command "sudo"
 
@@ -53,7 +105,7 @@ trap cleanup EXIT
 # STEP 1: Graphical username prompt (if not hardcoded)
 # ─────────────────────────────────────────────
 if [ -z "$USERNAME" ]; then
-    USERNAME=$(zenity --title "GlobalProtect VPN" --entry --text="Enter Boeing Username:")
+    USERNAME=$(dlg_input "GlobalProtect VPN" "Enter Boeing Username:")
     if [ $? -ne 0 ] || [ -z "$USERNAME" ]; then
         exit 0
     fi
@@ -62,9 +114,7 @@ fi
 # ─────────────────────────────────────────────
 # STEP 2: Notify user — xterm is opening for auth
 # ─────────────────────────────────────────────
-zenity \
-    --notification \
-    --text="Opening secure authentication terminal for $USERNAME@$PORTAL..."
+dlg_notify "Opening secure authentication terminal for $USERNAME@$PORTAL..."
 
 # ─────────────────────────────────────────────
 # STEP 3: Run globalprotect in an xterm window
@@ -133,7 +183,7 @@ if [ "$GP_EXIT" != "0" ]; then
 fi
 
 if [ "$GP_EXIT" != "0" ]; then
-    zenity --error --text="VPN connection failed. Please check your credentials or network."
+    dlg_error "VPN connection failed. Please check your credentials or network."
     exit 1
 fi
 
@@ -153,29 +203,25 @@ for iface in "${LOCAL_INTERFACES[@]}"; do
 done
 
 if [ "$SHOULD_ADD_ROUTES" = false ]; then
-    zenity \
-        --title "VPN Connected" \
-        --info --text=$'Connected successfully!\n\nNo matching subnets detected — custom routes skipped.'
+    dlg_info "VPN Connected" $'Connected successfully!\n\nNo matching subnets detected — custom routes skipped.'
     exit 0
 fi
 
 # ─────────────────────────────────────────────
-# STEP 6: Collect sudo password ONCE via zenity
+# STEP 6: Collect sudo password ONCE via the dialog helper
 #   - Validated immediately before use
 #   - Exported to environment for the route xterm
 # ─────────────────────────────────────────────
-SUDO_PASS=$(zenity \
-    --title "Administrative Authentication" \
-    --password --text=$'Matching subnet detected. Enter your sudo password to apply corporate routing tables.\n\nThis will be used for all route entries — you will not be prompted again.')
+SUDO_PASS=$(dlg_password "Administrative Authentication" $'Matching subnet detected. Enter your sudo password to apply corporate routing tables.\n\nThis will be used for all route entries — you will not be prompted again.')
 
 if [ $? -ne 0 ] || [ -z "$SUDO_PASS" ]; then
-    zenity --error --text="Authentication cancelled. Routes were not applied."
+    dlg_error "Authentication cancelled. Routes were not applied."
     exit 1
 fi
 
 # Validate password before proceeding
 if ! echo "$SUDO_PASS" | sudo -S true 2>/dev/null; then
-    zenity --error --text="Incorrect sudo password. Routes were not applied."
+    dlg_error "Incorrect sudo password. Routes were not applied."
     exit 1
 fi
 
@@ -212,7 +258,7 @@ export SUDO_PASS
 
         for route in "${routes[@]}"; do
             printf "  \033[0;37m%-28s\033[0m" "$route"
-            # stderr is suppressed so sudo/ip errors don't pollute the status
+            # stderr is suppressed so sudo/ip errors do not pollute the status
             # line; failures still register via exit status and show as "Failed"
             if echo "$SUDO_PASS" | sudo -S ip route replace "$route" dev "$VPN_DEV" 2>/dev/null; then
                 echo -e "\033[1;32m  ✔  Applied\033[0m"
@@ -240,8 +286,6 @@ export SUDO_PASS
 # ─────────────────────────────────────────────
 unset SUDO_PASS CORPORATE_ROUTES_STR VPN_DEV
 
-zenity \
-    --title "VPN Connected" \
-    --info --text=$'Connected successfully!\n\nCorporate routing tables have been applied.'
+dlg_info "VPN Connected" $'Connected successfully!\n\nCorporate routing tables have been applied.'
 
 exit 0

@@ -1,0 +1,13 @@
+# Adjust Exec/Icon paths to wherever the scripts are installed on your system.
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=GlobalProtect VPN — Disconnect
+GenericName=VPN Disconnect
+Comment=Disconnect from the Boeing GlobalProtect VPN
+Exec=/opt/vpn-connect/vpn-disconnect.sh
+Icon=network-vpn-disconnected
+Terminal=false
+Categories=Network;
+Keywords=VPN;GlobalProtect;Boeing;Disconnect;
+StartupNotify=true
