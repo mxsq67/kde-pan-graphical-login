@@ -62,7 +62,9 @@ Three `.desktop` launchers are provided — install whichever you prefer:
 (`zenity --question` with an extra button on GNOME; `kdialog --yesnocancel` on KDE) and then
 launches the matching script from its own directory. It resolves that directory with
 `readlink -f "$0"`, so it works regardless of the launcher's working directory as long as
-`vpn-connect.sh` / `vpn-disconnect.sh` sit alongside it.
+`vpn-connect.sh` / `vpn-disconnect.sh` sit alongside it. If the chosen target is missing or not
+executable, the chooser shows a graphical error dialog (rather than failing silently to stderr
+under the `Terminal=false` launcher) and exits.
 
 At the top of the pane it shows a **status LED** based on the `gpd0` interface state:
 
