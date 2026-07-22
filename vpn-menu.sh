@@ -88,9 +88,24 @@ fi
 
 # ─────────────────────────────────────────────
 # Launch the chosen script (replaces this process)
+#   - Verify the sibling exists/executable first; a missing script must surface
+#     a graphical error, not fail silently under a Terminal=false launcher.
 # ─────────────────────────────────────────────
+launch() {
+    local target="$SCRIPT_DIR/$1"
+    if [ ! -x "$target" ]; then
+        if [ "$DIALOG" = "zenity" ]; then
+            zenity --error --text="Cannot find $1 in $SCRIPT_DIR. Is it installed and executable?"
+        else
+            kdialog --error "Cannot find $1 in $SCRIPT_DIR. Is it installed and executable?"
+        fi
+        exit 1
+    fi
+    exec "$target"
+}
+
 case "$ACTION" in
-    connect)    exec "$SCRIPT_DIR/vpn-connect.sh" ;;
-    disconnect) exec "$SCRIPT_DIR/vpn-disconnect.sh" ;;
+    connect)    launch "vpn-connect.sh" ;;
+    disconnect) launch "vpn-disconnect.sh" ;;
     *)          exit 0 ;;
 esac
