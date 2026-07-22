@@ -1,0 +1,13 @@
+# Scripts install to /home/scottmi/VPN/; adjust Exec if you install elsewhere.
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=GlobalProtect VPN
+GenericName=VPN Connect / Disconnect
+Comment=Connect to or disconnect from the Boeing GlobalProtect VPN
+Exec=/home/scottmi/VPN/vpn-menu.sh
+Icon=network-vpn
+Terminal=false
+Categories=Network;
+Keywords=VPN;GlobalProtect;Boeing;Connect;Disconnect;
+StartupNotify=true

@@ -16,15 +16,18 @@ launchers' `Exec=` lines already point there.
 ```bash
 # Install the scripts into /home/scottmi/VPN/
 mkdir -p /home/scottmi/VPN
-cp vpn-connect.sh vpn-disconnect.sh /home/scottmi/VPN/
-chmod +x /home/scottmi/VPN/vpn-connect.sh /home/scottmi/VPN/vpn-disconnect.sh
+cp vpn-connect.sh vpn-disconnect.sh vpn-menu.sh /home/scottmi/VPN/
+chmod +x /home/scottmi/VPN/vpn-connect.sh /home/scottmi/VPN/vpn-disconnect.sh /home/scottmi/VPN/vpn-menu.sh
 
-# Install the launcher buttons (Connect / Disconnect)
+# Install the launcher(s). Either the single combined chooser...
+cp vpn.desktop ~/.local/share/applications/
+# ...or the two separate Connect / Disconnect buttons (or all three):
 cp vpn-connect.desktop vpn-disconnect.desktop ~/.local/share/applications/
 update-desktop-database ~/.local/share/applications/   # optional
 
 # Or run a script directly
-/home/scottmi/VPN/vpn-connect.sh
+/home/scottmi/VPN/vpn-menu.sh        # combined chooser
+/home/scottmi/VPN/vpn-connect.sh     # connect only
 ```
 
 The scripts are fully graphical once launched — they open dialogs for prompts (via `zenity` on
@@ -42,6 +45,33 @@ sudo apt install zenity xterm iproute2      # GNOME
 
 The GlobalProtect client (`globalprotect`, 6.2.x or higher) is a separate vendor package from Palo
 Alto Networks and must already be installed and configured.
+
+## Launchers
+
+Three `.desktop` launchers are provided — install whichever you prefer:
+
+| Launcher | Runs | Purpose |
+|---|---|---|
+| `vpn.desktop` | `vpn-menu.sh` | **Combined chooser** — one icon that opens a single pane with Connect / Disconnect buttons and a live status LED |
+| `vpn-connect.desktop` | `vpn-connect.sh` | Connect only |
+| `vpn-disconnect.desktop` | `vpn-disconnect.sh` | Disconnect only |
+
+### Combined chooser (`vpn-menu.sh`)
+
+`vpn-menu.sh` presents a single dialog with **Connect**, **Disconnect**, and **Cancel** buttons
+(`zenity --question` with an extra button on GNOME; `kdialog --yesnocancel` on KDE) and then
+launches the matching script from its own directory. It resolves that directory with
+`readlink -f "$0"`, so it works regardless of the launcher's working directory as long as
+`vpn-connect.sh` / `vpn-disconnect.sh` sit alongside it.
+
+At the top of the pane it shows a **status LED** based on the `gpd0` interface state:
+
+- 🟢 green ● **VPN connected** — `gpd0` link flags include `UP`.
+- 🔴 red ● **VPN disconnected** — otherwise.
+
+The LED is rendered with each toolkit's rich text (Pango markup for `zenity`, Qt rich text for
+`kdialog`). It is a **snapshot taken when the pane opens** and does not live-update — reopen the
+launcher to refresh the status.
 
 ## Desktop environment detection
 
