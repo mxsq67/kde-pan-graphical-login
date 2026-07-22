@@ -1,10 +1,12 @@
 # GlobalProtect graphical login (`vpn-connect.sh`)
 
 A desktop-integrated wrapper around Palo Alto Networks GlobalProtect that provides a graphical
-login/authentication flow and optional automatic corporate route injection, intended to be
-launched from a GNOME or KDE menu entry, panel button, or autostart item rather than a raw
-terminal. It detects the running desktop session and uses that desktop's native dialog toolkit
-(see [Desktop environment detection](#desktop-environment-detection)).
+login/authentication flow and optional automatic corporate route injection (with verification and
+re-add), intended to be launched from a GNOME or KDE menu entry, panel button, or autostart item
+rather than a raw terminal. It detects the running desktop session and uses that desktop's native
+dialog toolkit (see [Desktop environment detection](#desktop-environment-detection)), keeps
+NetworkManager from flushing its routes, and ships a companion `vpn-disconnect.sh` that cleans up
+routes and cache files on disconnect.
 
 ## Usage
 
@@ -105,14 +107,63 @@ dispatch to the correct toolkit based on the detected environment — there are 
    - Prompts once for the sudo password via the password dialog (`zenity --password` /
      `kdialog --password`), validates it immediately with
      `sudo -S true`, and aborts if it's wrong or cancelled.
-   - Opens a second styled `xterm` window that loops over `CORPORATE_ROUTES`
+   - Opens a second styled `xterm` window that first keeps NetworkManager out of the way (see
+     [NetworkManager](#networkmanager)), then loops over `CORPORATE_ROUTES`
      (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `10.0.2.47/32`, `10.0.2.12/32`) and runs
      `sudo -S ip route replace <route> dev gpd0` for each, piping in the previously-captured
      password so the user isn't prompted again.
    - Reports per-route success/failure in the terminal.
 
-7. **Cleanup** — unsets `SUDO_PASS`, `CORPORATE_ROUTES_STR`, and `VPN_DEV` from the environment
-   before showing the final success dialog.
+7. **Route verification with re-add** — after the initial apply, the same `xterm` re-checks every
+   route with `ip route show <route> dev gpd0`. Any route that is missing is re-added with up to
+   three `ip route replace` attempts (marked `⟳ Re-added`); a route that still can't be installed
+   is flagged `✘ Missing`. The verification result is passed back to the parent script through a
+   `mktemp`'d status file so the final dialog reflects it — a success dialog only if **all** routes
+   verified present, otherwise an error dialog and non-zero exit.
+
+8. **Cleanup** — unsets `SUDO_PASS`, `CORPORATE_ROUTES_STR`, and `VPN_DEV` from the environment,
+   and removes the IPC temp files via an `EXIT` trap, before showing the final dialog.
+
+## NetworkManager
+
+If NetworkManager is present and running, it can reclaim the VPN interface and flush the routes the
+script adds. Before injecting routes, `vpn-connect.sh` therefore marks the VPN device unmanaged:
+
+```bash
+sudo nmcli device set gpd0 managed no
+```
+
+This is **best-effort and narrowly scoped**:
+
+- It runs only when `nmcli` exists **and** `nmcli -t -f RUNNING general` reports `running`; on
+  systems without NetworkManager it is silently skipped (no hard dependency).
+- Only the `gpd0` VPN device is touched — Ethernet/Wi-Fi interfaces stay fully NM-managed.
+- The change is runtime-only (not persistent across reboots or NM restarts); `gpd0` is recreated
+  and re-marked unmanaged on each connect. No revert is needed on disconnect because the device
+  disappears when the tunnel drops.
+
+Even with the device unmanaged, the route-verification pass above still re-adds anything a race
+during tunnel bring-up manages to drop.
+
+## Disconnecting (`vpn-disconnect.sh`)
+
+`vpn-disconnect.sh` (wired to the **Disconnect** launcher) tears the session down and leaves the
+environment clean so the next connect starts fresh:
+
+1. **Confirm** — asks for confirmation via the question dialog (`zenity --question` /
+   `kdialog --yesno`); cancelling exits without changes.
+2. **Disconnect** — runs `globalprotect disconnect`.
+3. **Route cleanup** — scans `CORPORATE_ROUTES` for any still installed on `gpd0`. Normally the
+   kernel already removed them with the interface, so nothing lingers and **no sudo prompt
+   appears**. Only if routes remain does it prompt once for sudo and `ip route del` each one,
+   verifying removal — so no stale/cached routes carry into the next connect.
+4. **Cache-file cleanup** — removes leftover `vpn-connect.sh` IPC files
+   (`/tmp/vpn_gp_exit.*`, `/tmp/vpn_route_status.*`) in case a crash left them behind. During
+   normal runs these are already gone (removed by the connect script's `EXIT` trap).
+5. **Report** — shows a final dialog summarizing the disconnect and any cleanup performed.
+
+Keep the `CORPORATE_ROUTES` / `VPN_DEV` values in `vpn-disconnect.sh` in sync with `vpn-connect.sh`;
+they are defined in both scripts.
 
 ## Required programs / packages
 
@@ -124,6 +175,7 @@ dispatch to the correct toolkit based on the detected environment — there are 
 | `ip` | `iproute2` | Reads interface addresses and checks/sets routes |
 | `grep` | `grep` (coreutils/base install) | Used to check `ip link show` output for `UP` state |
 | `sudo` | `sudo` | Required to run `ip route replace` with elevated privileges |
+| `nmcli` *(optional)* | `network-manager` | If present and running, used to mark the VPN device unmanaged so NetworkManager doesn't flush routes; skipped if absent |
 | `bash` | `bash` | Script interpreter and the `-c` subshells run inside each `xterm` |
 
 The scripts also assume a GNOME or KDE desktop session (with `$XDG_CURRENT_DESKTOP` /
