@@ -1,9 +1,33 @@
-# vpn-connect.sh
+# GNOME GlobalProtect graphical login (`vpn-connect.sh`)
 
 A GNOME-integrated wrapper around Palo Alto Networks GlobalProtect that provides a graphical
 login/authentication flow and optional automatic corporate route injection, intended to be
 launched from a GNOME menu entry, panel button, or autostart item rather than a raw
 terminal.
+
+## Usage
+
+```bash
+# One-time: make the script executable
+chmod +x vpn-connect.sh
+
+# Run it (from a menu entry, panel launcher, or a terminal)
+./vpn-connect.sh
+```
+
+The script is fully graphical once launched — it opens `zenity` dialogs for prompts and a styled
+`xterm` for the interactive GlobalProtect authentication (password + MFA). It needs a running X /
+GNOME session; it will not work over a plain SSH session without an X display. To wire it to a
+desktop launcher, point a `.desktop` file's `Exec=` at the absolute path of the script.
+
+Install the runtime dependencies first (Debian/Ubuntu example):
+
+```bash
+sudo apt install zenity xterm iproute2
+```
+
+The GlobalProtect client (`globalprotect`, 6.2.x or higher) is a separate vendor package from Palo
+Alto Networks and must already be installed and configured.
 
 ## What it does
 
